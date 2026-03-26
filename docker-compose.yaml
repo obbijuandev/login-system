@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:80"
+    # Docker Compose carga automáticamente el archivo .env si está en el mismo directorio
+    env_file:
+      - .env
+    # Opcionalmente, puedes mapear variables específicas si quieres renombrarlas
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
