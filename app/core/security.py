@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import config
+from app.services.token_blocklist import token_blocklist
 
 PASSWORD_HASH_SCHEME = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 600_000
@@ -221,6 +222,11 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
         # Validate typ claim is "refresh"
         if payload.get("typ") != "refresh":
             raise InvalidTokenError("Tipo de token inválido: se esperaba 'refresh'")
+
+        # Check if token is blocked
+        jti = payload.get("jti")
+        if jti and token_blocklist.is_blocked(jti):
+            raise InvalidTokenError("Token ha sido invalidado")
 
         exp = payload.get("exp")
         if exp is not None and datetime.now(timezone.utc).timestamp() >= exp:

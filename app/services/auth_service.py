@@ -15,6 +15,7 @@ from app.core.security import InvalidTokenError as SecurityInvalidTokenError
 from app.core.security import ExpiredTokenError as SecurityExpiredTokenError
 from app.db.schema import DEFAULT_ROLE_NAME, Role, User
 from app.models.auth import Token
+from app.services.token_blocklist import token_blocklist
 
 
 class EmailAlreadyExistsError(ValueError):
@@ -125,9 +126,12 @@ class AuthService:
         )
 
     def logout(self, refresh_token: str) -> dict:
-        """Logout - validate token and return confirmation."""
+        """Logout - invalidate refresh token by adding to blocklist."""
         try:
-            decode_refresh_token(refresh_token)
+            payload = decode_refresh_token(refresh_token)
+            jti = payload.get("jti")
+            if jti:
+                token_blocklist.add(jti)
         except SecurityExpiredTokenError:
             pass  # Token already expired, still considered logged out
         except SecurityInvalidTokenError:
