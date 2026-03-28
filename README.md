@@ -61,14 +61,51 @@ Todo usuario que se registra desde `/api/v1/auth/register` queda con rol:
 - puede editar solo su propio usuario
 - no puede eliminar usuarios
 
-## Estructura general
+## Arquitectura
 
-- `app/api/v1/` → endpoints HTTP
-- `app/api/dependencies.py` → dependencias de autenticación y autorización
-- `app/services/` → lógica de negocio
-- `app/db/schema.py` → modelos ORM, inicialización y migración básica SQLite
-- `app/core/security.py` → hashing, JWT y validaciones de seguridad
-- `app/commands/` → comandos operativos por CLI
+```
+app/
+├── api/
+│   ├── v1/
+│   │   ├── auth.py           # Endpoints: login, register, refresh, logout, me
+│   │   └── user.py           # Endpoints: CRUD usuarios + gestión de roles
+│   └── dependencies.py        # Auth dependencies (get_current_user, require_role)
+├── core/
+│   ├── config.py              # Configuración JWT (30 min access, 7 day refresh)
+│   └── security.py            # JWT creation/validation + password hashing (PBKDF2)
+├── models/
+│   ├── auth.py                # Token, RefreshRequest, LogoutRequest, LoginRequest
+│   └── user.py                # UserRead, UserCreate, RoleRead, etc.
+├── services/
+│   ├── auth_service.py        # Login, register, refresh_access_token, logout
+│   └── user_service.py        # User CRUD + role management
+├── db/
+│   └── schema.py              # SQLAlchemy models (User, Role)
+└── commands/
+    └── bootstrap_first_admin.py  # CLI para promover primer ADMIN
+
+tests/                          # 49 tests cubriendo toda la funcionalidad
+```
+
+### Patrón de arquitectura: Service Layer
+
+```
+HTTP Request → API Endpoint → Service Layer → DB (SQLAlchemy)
+                ↓
+         Dependencies (auth, authorization)
+```
+
+### JWT Flow
+
+```
+Login → access_token (30 min) + refresh_token (7 days, rotation)
+    ↓
+ 使用access_token进行API调用
+    ↓
+ Token过期 → POST /auth/refresh → 新tokens
+    ↓
+ Logout → POST /auth/logout → refresh token invalidated
+```
 
 ## Ejecución local
 
@@ -127,6 +164,8 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
   }'
 ```
 
+> Retorna: `{ "access_token": "...", "refresh_token": "...", "token_type": "bearer" }`
+
 ### 3. Consultar usuario autenticado
 
 ```bash
@@ -134,20 +173,45 @@ curl -X GET "http://localhost:8000/api/v1/auth/me" \
   -H "Authorization: Bearer <access-token>"
 ```
 
+### 4. Refrescar tokens (cuando access_token expira)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "<refresh_token>"
+  }'
+```
+
+> El refresh token anterior es invalidado (rotación) y se emiten nuevos tokens.
+
+### 5. Logout
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/logout" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "<refresh_token>"
+  }'
+```
+
 ## Endpoints principales
 
 ### Autenticación
 
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/login`
-- `GET /api/v1/auth/me`
+- `POST /api/v1/auth/register` — Registrar usuario (rol AGENTE por defecto)
+- `POST /api/v1/auth/login` — Login (retorna access + refresh token)
+- `GET /api/v1/auth/me` — Usuario autenticado
+- `POST /api/v1/auth/refresh` — Refrescar tokens (rotation)
+- `POST /api/v1/auth/logout` — Invalidar refresh token
 
 ### Usuarios
 
-- `GET /api/v1/users`
-- `GET /api/v1/users/{user_id}`
-- `PUT /api/v1/users/{user_id}`
-- `DELETE /api/v1/users/{user_id}`
+- `GET /api/v1/users` — Listar usuarios (ADMIN, SUPERVISOR)
+- `GET /api/v1/users/{user_id}` — Ver usuario por ID
+- `PUT /api/v1/users/{user_id}` — Actualizar nombre
+- `PATCH /api/v1/users/{user_id}/role` — Cambiar rol (ADMIN solo)
+- `DELETE /api/v1/users/{user_id}` — Eliminar usuario (ADMIN solo)
 
 > `POST /api/v1/users` fue deshabilitado. El alta de usuarios vive en `/api/v1/auth/register`.
 
@@ -228,3 +292,5 @@ uv sync
 - los errores del framework más comunes también fueron adaptados al español
 - el rol NO se guarda dentro del JWT; se resuelve desde base de datos
 - el primer `ADMIN` se obtiene por bootstrap controlado, no por registro público
+- access_token expira en 30 min, refresh_token en 7 días
+- refresh tokens usan rotación: cada refresh invalida el token anterior
