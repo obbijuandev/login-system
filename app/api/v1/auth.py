@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from slowapi.errors import RateLimitExceeded
 
 from app.api.dependencies import get_auth_service, get_current_user
+from app.core.limiter import limiter
 from app.db.schema import User
 from app.models.auth import (
     LoginRequest,
@@ -22,7 +24,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("3/minute")
 def register(
+    request: Request,
     payload: RegisterRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
@@ -40,7 +44,9 @@ def register(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     payload: LoginRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):

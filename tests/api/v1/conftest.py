@@ -1,5 +1,9 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
+
+# Disable rate limiting in tests
+os.environ["TESTING"] = "true"
 
 from app.api.dependencies import get_db
 from app.main import app

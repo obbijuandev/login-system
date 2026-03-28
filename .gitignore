@@ -26,3 +26,7 @@ dist/
 
 # pytest
 .pytest_cache/
+
+# Database
+*.db
+produccion.db
