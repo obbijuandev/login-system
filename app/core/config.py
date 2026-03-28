@@ -15,6 +15,7 @@ class Config(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
+    jwt_email_verification_token_expire_hours: int = 24
 
     @property
     def db_url(self) -> str:

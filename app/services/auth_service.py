@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import (
     create_access_token,
+    create_email_verification_token,
     create_refresh_token,
+    decode_email_verification_token,
     decode_refresh_token,
     hash_password,
     normalize_email,
@@ -132,6 +134,52 @@ class AuthService:
             pass  # Invalid token, still considered logged out
 
         return {"message": "Sesión cerrada exitosamente"}
+
+    def verify_email(self, token: str) -> bool:
+        """Verify user's email with token. Returns True on success."""
+        try:
+            payload = decode_email_verification_token(token)
+        except SecurityExpiredTokenError as exc:
+            raise ExpiredTokenError("El token de verificación ha expirado") from exc
+        except SecurityInvalidTokenError as exc:
+            raise InvalidTokenError("Token de verificación inválido") from exc
+
+        subject = payload.get("sub")
+        if not subject:
+            raise InvalidTokenError("Token sin subject")
+
+        user = self.get_user_from_subject(subject)
+        if user is None:
+            raise InvalidTokenError("Usuario no encontrado")
+
+        if user.email_verified:
+            return True  # Already verified, no-op
+
+        user.email_verified = True
+        self._db.commit()
+        return True
+
+    def resend_verification(self, email: str) -> dict:
+        """Create and return new verification token for email.
+
+        Note: Email sending is OUT of scope - token is created and returned
+        for integration with external email service.
+        """
+        normalized_email = self._normalize_email(email)
+        user = self.get_user_by_email(normalized_email)
+
+        if user is None:
+            # Security: don't reveal if email exists
+            return {"verification_token": None}
+
+        if user.email_verified:
+            # Already verified - still return success to avoid enumeration
+            return {"verification_token": None}
+
+        # Create new token
+        token = create_email_verification_token(subject=str(user.id))
+
+        return {"verification_token": token}
 
     @staticmethod
     def _normalize_email(email: str) -> str:

@@ -46,3 +46,16 @@ class LogoutRequest(BaseModel):
 class TokenPayload(BaseModel):
     sub: str
     exp: int | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)

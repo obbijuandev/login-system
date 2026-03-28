@@ -231,3 +231,76 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
         raise InvalidTokenError("JWT inválido") from exc
 
     return payload
+
+
+def create_email_verification_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """Create JWT for email verification with typ='email_verification' claim."""
+    expire_at = datetime.now(timezone.utc) + (
+        expires_delta
+        or timedelta(hours=config.jwt_email_verification_token_expire_hours)
+    )
+    header = {"alg": config.jwt_algorithm, "typ": "JWT"}
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "exp": int(expire_at.timestamp()),
+        "typ": "email_verification",
+        "jti": uuid.uuid4().hex,
+    }
+
+    encoded_header = _b64url_encode(
+        json.dumps(header, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    encoded_payload = _b64url_encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    signing_input = f"{encoded_header}.{encoded_payload}"
+    signature = hmac.new(
+        config.jwt_secret.encode("utf-8"),
+        signing_input.encode("utf-8"),
+        _get_jwt_hash(),
+    ).digest()
+    return f"{signing_input}.{_b64url_encode(signature)}"
+
+
+def decode_email_verification_token(token: str) -> dict[str, Any]:
+    """Decode and validate email verification token with typ='email_verification'."""
+    try:
+        encoded_header, encoded_payload, encoded_signature = token.split(".")
+    except ValueError as exc:
+        raise InvalidTokenError("Estructura de JWT inválida") from exc
+
+    try:
+        signing_input = f"{encoded_header}.{encoded_payload}"
+        expected_signature = hmac.new(
+            config.jwt_secret.encode("utf-8"),
+            signing_input.encode("utf-8"),
+            _get_jwt_hash(),
+        ).digest()
+        provided_signature = _b64url_decode(encoded_signature)
+        if not hmac.compare_digest(expected_signature, provided_signature):
+            raise InvalidTokenError("Firma JWT inválida")
+
+        header = json.loads(_b64url_decode(encoded_header))
+        if header.get("alg") != config.jwt_algorithm:
+            raise InvalidTokenError("Algoritmo JWT inválido")
+
+        payload = json.loads(_b64url_decode(encoded_payload))
+
+        # Validate typ claim is "email_verification"
+        if payload.get("typ") != "email_verification":
+            raise InvalidTokenError(
+                "Tipo de token inválido: se esperaba 'email_verification'"
+            )
+
+        exp = payload.get("exp")
+        if exp is not None and datetime.now(timezone.utc).timestamp() >= exp:
+            raise ExpiredTokenError("El token de verificación ha expirado")
+    except ExpiredTokenError:
+        raise
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InvalidTokenError("JWT inválido") from exc
+
+    return payload

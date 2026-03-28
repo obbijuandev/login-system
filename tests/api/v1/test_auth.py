@@ -336,3 +336,160 @@ def test_logout_returns_200_with_message(client):
 
     assert logout_response.status_code == 200
     assert "message" in logout_response.json()
+
+
+def test_verify_email_with_valid_token(client):
+    """Test that verify_email endpoint works with valid token."""
+    from app.core.security import create_email_verification_token
+    from app.db.schema import User
+    from tests.test_db import TestingSessionLocal
+
+    # Register a user first
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Ada",
+            "email": "ada@example.com",
+            "password": "secret-pass",
+        },
+    )
+
+    # Get the user ID
+    session = TestingSessionLocal()
+    try:
+        user = session.query(User).filter(User.email == "ada@example.com").first()
+        user_id = user.id
+    finally:
+        session.close()
+
+    # Create a valid verification token
+    token = create_email_verification_token(subject=str(user_id))
+
+    # Verify email
+    response = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Email verificado exitosamente"}
+
+    # Verify user is marked as verified in DB
+    session = TestingSessionLocal()
+    try:
+        user = session.query(User).filter(User.email == "ada@example.com").first()
+        assert user.email_verified is True
+    finally:
+        session.close()
+
+
+def test_verify_email_with_invalid_token(client):
+    """Test that verify_email endpoint returns 400 for invalid token."""
+    response = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": "invalid.token.value"},
+    )
+
+    assert response.status_code == 400
+    assert "inválido" in response.json()["detail"].lower()
+
+
+def test_verify_email_with_expired_token(client):
+    """Test that verify_email endpoint returns 400 for expired token."""
+    from datetime import timedelta
+    from app.core.security import create_email_verification_token
+
+    # Create an expired token
+    expired_token = create_email_verification_token(
+        subject="1",
+        expires_delta=timedelta(minutes=-1),
+    )
+
+    response = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": expired_token},
+    )
+
+    assert response.status_code == 400
+    assert "expirado" in response.json()["detail"].lower()
+
+
+def test_resend_verification(client):
+    """Test that resend_verification endpoint returns a token."""
+    # Register a user first
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Ada",
+            "email": "ada@example.com",
+            "password": "secret-pass",
+        },
+    )
+
+    # Request resend verification
+    response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "ada@example.com"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "verification_token" in data
+    assert data["verification_token"] is not None
+
+
+def test_resend_verification_for_nonexistent_email(client):
+    """Test that resend_verification returns generic message for non-existent email."""
+    response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "nonexistent@example.com"},
+    )
+
+    assert response.status_code == 200
+    # Should return a generic message, not reveal that email doesn't exist
+    assert (
+        "verification_token" not in response.json()
+        or response.json().get("verification_token") is None
+    )
+
+
+def test_resend_verification_for_already_verified_email(client):
+    """Test that resend_verification returns generic message for already verified email."""
+    from app.core.security import create_email_verification_token
+    from app.db.schema import User
+    from tests.test_db import TestingSessionLocal
+
+    # Register and verify user first
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Ada",
+            "email": "ada@example.com",
+            "password": "secret-pass",
+        },
+    )
+
+    # Get user ID and verify manually
+    session = TestingSessionLocal()
+    try:
+        user = session.query(User).filter(User.email == "ada@example.com").first()
+        user_id = user.id
+        token = create_email_verification_token(subject=str(user_id))
+        # Mark as verified directly in DB (simulating previous verification)
+        user.email_verified = True
+        session.commit()
+    finally:
+        session.close()
+
+    # Now try to resend verification
+    response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "ada@example.com"},
+    )
+
+    assert response.status_code == 200
+    # Should return generic message, not a new token
+    assert (
+        "verification_token" not in response.json()
+        or response.json().get("verification_token") is None
+    )

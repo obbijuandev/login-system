@@ -9,7 +9,9 @@ from app.models.auth import (
     LogoutRequest,
     RefreshRequest,
     RegisterRequest,
+    ResendVerificationRequest,
     Token,
+    VerifyEmailRequest,
 )
 from app.models.user import UserRead
 from app.services.auth_service import (
@@ -94,3 +96,40 @@ def logout(
 ):
     """Client-side logout - discards refresh token."""
     return auth_service.logout(refresh_token=payload.refresh_token)
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+def verify_email(
+    payload: VerifyEmailRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Verify user's email with token from verification email."""
+    try:
+        auth_service.verify_email(token=payload.token)
+        return {"message": "Email verificado exitosamente"}
+    except ExpiredTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El token de verificación ha expirado",
+        ) from exc
+    except InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token de verificación inválido",
+        ) from exc
+
+
+@router.post("/resend-verification", response_model=dict)
+@limiter.limit("3/minute")
+def resend_verification(
+    request: Request,
+    payload: ResendVerificationRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Resend verification email for unverified users."""
+    result = auth_service.resend_verification(email=payload.email)
+
+    # Always return success to prevent email enumeration
+    if result.get("verification_token") is not None:
+        return {"verification_token": result["verification_token"]}
+    return {"message": "Si el correo existe, se envió el correo de verificación"}

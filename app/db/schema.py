@@ -13,7 +13,7 @@ Estrategia:
 import logging
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, String, create_engine
+from sqlalchemy import Boolean, ForeignKey, String, create_engine
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -63,6 +63,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     role_id: Mapped[int | None] = mapped_column(
         ForeignKey("roles.id"), nullable=True, index=True
     )
@@ -122,6 +123,14 @@ def migrate_legacy_schema(db_engine=engine) -> None:
                 f"ALTER TABLE {User.__tablename__} ADD COLUMN role_id INTEGER"
             )
             logger.info("Se agregó la columna users.role_id para la base SQLite legacy")
+
+        if "email_verified" not in columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE {User.__tablename__} ADD COLUMN email_verified BOOLEAN"
+            )
+            logger.info(
+                "Se agregó la columna users.email_verified para la base SQLite legacy"
+            )
 
         _ensure_email_indexes(connection)
         _ensure_role_index(connection)
