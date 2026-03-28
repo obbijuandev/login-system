@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Proyecto base con FastAPI"
 readme = "README.md"
 requires-python = ">=3.13"
+# Auth base sin dependencias extra: hashing/JWT resueltos con stdlib.
 dependencies = [
     "fastapi>=0.116.1",
     "gunicorn>=24.1.1",
