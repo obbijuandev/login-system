@@ -1,30 +1,30 @@
-"""Token blocklist service for invalidating refresh tokens on logout."""
+"""Servicio de blocklist de tokens para invalidar refresh tokens al hacer logout."""
 
 from typing import Set
 
 
 class TokenBlocklist:
-    """Simple in-memory token blocklist using a set of JTIs."""
+    """Blocklist de tokens en memoria usando un set de JTIs."""
 
     def __init__(self) -> None:
         self._blocklist: Set[str] = set()
 
     def add(self, jti: str) -> None:
-        """Add a token JTI to the blocklist."""
+        """Agrega un JTI de token a la blocklist."""
         self._blocklist.add(jti)
 
     def is_blocked(self, jti: str) -> bool:
-        """Check if a token JTI is blocked."""
+        """Verifica si un JTI de token está bloqueado."""
         return jti in self._blocklist
 
     def remove(self, jti: str) -> None:
-        """Remove a token JTI from the blocklist (for cleanup or allowlist)."""
+        """Elimina un JTI de token de la blocklist (para limpieza o allowlist)."""
         self._blocklist.discard(jti)
 
     def clear(self) -> None:
-        """Clear all blocked tokens. Use with caution."""
+        """Limpia todos los tokens bloqueados. Usar con precaución."""
         self._blocklist.clear()
 
 
-# Global instance for use across the application
+# Instancia global para usar en toda la aplicación
 token_blocklist = TokenBlocklist()

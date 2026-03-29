@@ -107,7 +107,7 @@ class AuthService:
         return self.get_user_by_id(int(subject))
 
     def refresh_access_token(self, refresh_token: str) -> Token:
-        """Exchange refresh token for new access + refresh token (rotation)."""
+        """Intercambia refresh token por nuevo access + refresh token (rotación)."""
         try:
             payload = decode_refresh_token(refresh_token)
         except SecurityExpiredTokenError as exc:
@@ -119,28 +119,28 @@ class AuthService:
         if not subject:
             raise InvalidTokenError("Token de refresh sin subject")
 
-        # Create new tokens with new jti (rotation)
+        # Crear nuevos tokens con nuevo jti (rotación)
         return Token(
             access_token=create_access_token(subject=subject),
             refresh_token=create_refresh_token(subject=subject),
         )
 
     def logout(self, refresh_token: str) -> dict:
-        """Logout - invalidate refresh token by adding to blocklist."""
+        """Logout - invalida refresh token agregándolo a la blocklist."""
         try:
             payload = decode_refresh_token(refresh_token)
             jti = payload.get("jti")
             if jti:
                 token_blocklist.add(jti)
         except SecurityExpiredTokenError:
-            pass  # Token already expired, still considered logged out
+            pass  # Token ya expirado, se considera igual como logout
         except SecurityInvalidTokenError:
-            pass  # Invalid token, still considered logged out
+            pass  # Token inválido, se considera igual como logout
 
         return {"message": "Sesión cerrada exitosamente"}
 
     def verify_email(self, token: str) -> bool:
-        """Verify user's email with token. Returns True on success."""
+        """Verifica el email del usuario con el token. Retorna True si es exitoso."""
         try:
             payload = decode_email_verification_token(token)
         except SecurityExpiredTokenError as exc:
@@ -157,30 +157,30 @@ class AuthService:
             raise InvalidTokenError("Usuario no encontrado")
 
         if user.email_verified:
-            return True  # Already verified, no-op
+            return True  # Ya verificado, no-op
 
         user.email_verified = True
         self._db.commit()
         return True
 
     def resend_verification(self, email: str) -> dict:
-        """Create and return new verification token for email.
+        """Crea y retorna nuevo token de verificación para el email.
 
-        Note: Email sending is OUT of scope - token is created and returned
-        for integration with external email service.
+        Nota: El envío de email está FUERA de scope - el token se crea y retorna
+        para integración con servicio externo de email.
         """
         normalized_email = self._normalize_email(email)
         user = self.get_user_by_email(normalized_email)
 
         if user is None:
-            # Security: don't reveal if email exists
+            # Seguridad: no revelar si el email existe
             return {"verification_token": None}
 
         if user.email_verified:
-            # Already verified - still return success to avoid enumeration
+            # Ya verificado - igual retornar éxito para evitar enumeración
             return {"verification_token": None}
 
-        # Create new token
+        # Crear nuevo token
         token = create_email_verification_token(subject=str(user.id))
 
         return {"verification_token": token}

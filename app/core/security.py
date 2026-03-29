@@ -168,7 +168,7 @@ def create_refresh_token(
     subject: str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create JWT refresh token with rotation ID (jti) and typ claim."""
+    """Crea JWT refresh token con ID de rotación (jti) y claim typ."""
     expire_at = datetime.now(timezone.utc) + (
         expires_delta or timedelta(days=config.jwt_refresh_token_expire_days)
     )
@@ -196,7 +196,7 @@ def create_refresh_token(
 
 
 def decode_refresh_token(token: str) -> dict[str, Any]:
-    """Decode and validate refresh token with typ="refresh" validation."""
+    """Decodifica y valida refresh token con validación de typ="refresh"."""
     try:
         encoded_header, encoded_payload, encoded_signature = token.split(".")
     except ValueError as exc:
@@ -219,11 +219,11 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
 
         payload = json.loads(_b64url_decode(encoded_payload))
 
-        # Validate typ claim is "refresh"
+        # Validar que el claim typ sea "refresh"
         if payload.get("typ") != "refresh":
             raise InvalidTokenError("Tipo de token inválido: se esperaba 'refresh'")
 
-        # Check if token is blocked
+        # Verificar si el token está bloqueado
         jti = payload.get("jti")
         if jti and token_blocklist.is_blocked(jti):
             raise InvalidTokenError("Token ha sido invalidado")
@@ -243,7 +243,7 @@ def create_email_verification_token(
     subject: str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create JWT for email verification with typ='email_verification' claim."""
+    """Crea JWT para verificación de email con claim typ='email_verification'."""
     expire_at = datetime.now(timezone.utc) + (
         expires_delta
         or timedelta(hours=config.jwt_email_verification_token_expire_hours)
@@ -272,7 +272,7 @@ def create_email_verification_token(
 
 
 def decode_email_verification_token(token: str) -> dict[str, Any]:
-    """Decode and validate email verification token with typ='email_verification'."""
+    """Decodifica y valida token de verificación de email con typ='email_verification'."""
     try:
         encoded_header, encoded_payload, encoded_signature = token.split(".")
     except ValueError as exc:
@@ -295,7 +295,7 @@ def decode_email_verification_token(token: str) -> dict[str, Any]:
 
         payload = json.loads(_b64url_decode(encoded_payload))
 
-        # Validate typ claim is "email_verification"
+        # Validar que el claim typ sea "email_verification"
         if payload.get("typ") != "email_verification":
             raise InvalidTokenError(
                 "Tipo de token inválido: se esperaba 'email_verification'"
