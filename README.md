@@ -28,6 +28,7 @@ El proyecto incluye:
 - verificación de email por token JWT
 - logging estructurado JSON con request IDs
 - rate limiting en endpoints de auth
+- autenticación OAuth con Google
 
 ## Roles disponibles
 
@@ -72,12 +73,12 @@ Todo usuario que se registra desde `/api/v1/auth/register` queda con rol:
 app/
 ├── api/
 │   ├── v1/
-│   │   ├── auth.py            # Endpoints: login, register, refresh, logout, me, verify-email
+│   │   ├── auth.py            # Endpoints: login, register, refresh, logout, me, verify-email, google OAuth
 │   │   └── user.py            # Endpoints: CRUD usuarios + gestión de roles
 │   ├── dependencies.py        # Auth dependencies (get_current_user, require_role)
 │   └── middlewares.py         # RateLimitMiddleware para rate limiting multi-worker
 ├── core/
-│   ├── config.py              # Configuración JWT (30 min access, 7 day refresh, 24h email verification)
+│   ├── config.py              # Configuración JWT + Google OAuth
 │   ├── security.py             # JWT creation/validation + password hashing (PBKDF2)
 │   ├── logging.py              # Logging estructurado JSON con contextvars
 │   ├── logging_middleware.py   # RequestIDMiddleware para request tracing
@@ -88,10 +89,11 @@ app/
 ├── services/
 │   ├── auth_service.py         # Login, register, refresh_access_token, logout, verify_email
 │   ├── user_service.py         # User CRUD + role management
+│   ├── google_oauth_service.py # Google OAuth integration
 │   ├── token_blocklist.py      # Blocklist de tokens con SQLite (shared entre workers)
 │   └── rate_limit_store.py     # Rate limiting store con SQLite (shared entre workers)
 ├── db/
-│   └── schema.py              # SQLAlchemy models (User, Role) + migrations legacy
+│   └── schema.py              # SQLAlchemy models (User, Role, LinkedAccount) + migrations legacy
 └── commands/
     └── bootstrap_first_admin.py  # CLI para promover primer ADMIN
 
@@ -163,6 +165,18 @@ Valores relevantes:
 - expiración del access token (30 min default)
 - expiración del refresh token (7 días default)
 - expiración del token de verificación de email (24 horas default)
+
+### Google OAuth (opcional)
+
+Para habilitar login con Google, configurar en `.env`:
+
+```bash
+GOOGLE_CLIENT_ID=tu-client-id
+GOOGLE_CLIENT_SECRET=tu-client-secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/api/v1/auth/google/callback
+```
+
+> Si no están configuradas, los endpoints de Google OAuth retornan `503 Service Unavailable`.
 
 ## Flujo básico de autenticación
 
@@ -240,6 +254,16 @@ curl -X POST "http://localhost:8000/api/v1/auth/resend-verification" \
   }'
 ```
 
+### 8. Login con Google OAuth
+
+```bash
+# Redirige a Google para autorización
+curl -L "http://localhost:8000/api/v1/auth/google"
+# Callback retorna JWT tokens automáticamente
+```
+
+> El flujo OAuth crea un usuario con rol AGENTE y `email_verified=True`.
+
 ## Rate Limiting
 
 Los siguientes endpoints tienen límite de requests:
@@ -262,6 +286,8 @@ Al superar el límite, retorna `429 Too Many Requests`.
 - `POST /api/v1/auth/logout` — Invalidar refresh token (server-side blocklist)
 - `POST /api/v1/auth/verify-email` — Verificar email con token JWT
 - `POST /api/v1/auth/resend-verification` — Reenviar token de verificación
+- `GET /api/v1/auth/google` — Iniciar login con Google OAuth
+- `GET /api/v1/auth/google/callback` — Callback de Google OAuth
 
 ### Usuarios
 
