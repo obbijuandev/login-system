@@ -24,11 +24,6 @@ app.state.limiter = limiter
 register_exception_handlers(app)
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
-
-
 # Registrar rutas
 app.include_router(user.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")

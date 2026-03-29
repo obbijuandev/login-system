@@ -28,7 +28,6 @@ El proyecto incluye:
 - verificación de email por token JWT
 - logging estructurado JSON con request IDs
 - rate limiting en endpoints de auth
-- health check endpoint
 
 ## Roles disponibles
 
@@ -263,10 +262,6 @@ Al superar el límite, retorna `429 Too Many Requests`.
 - `POST /api/v1/auth/logout` — Invalidar refresh token (server-side blocklist)
 - `POST /api/v1/auth/verify-email` — Verificar email con token JWT
 - `POST /api/v1/auth/resend-verification` — Reenviar token de verificación
-
-### Health Check
-
-- `GET /health` — Estado de la aplicación (para Docker/K8s)
 
 ### Usuarios
 
