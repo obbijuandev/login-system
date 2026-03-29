@@ -14,7 +14,7 @@ from app.services.user_service import (
     UserService,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(tags=["users"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/users", response_model=list[UserRead])
