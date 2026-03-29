@@ -20,9 +20,15 @@ El proyecto incluye:
 - registro de usuarios
 - login
 - endpoint `/auth/me`
+- refresh tokens con rotación (7 días)
+- logout con invalidación server-side (blocklist)
 - roles persistidos en base de datos
 - autorización por rol sobre endpoints de usuarios
 - bootstrap controlado del primer `ADMIN`
+- verificación de email por token JWT
+- logging estructurado JSON con request IDs
+- rate limiting en endpoints de auth
+- health check endpoint
 
 ## Roles disponibles
 
@@ -67,24 +73,28 @@ Todo usuario que se registra desde `/api/v1/auth/register` queda con rol:
 app/
 ├── api/
 │   ├── v1/
-│   │   ├── auth.py           # Endpoints: login, register, refresh, logout, me
-│   │   └── user.py           # Endpoints: CRUD usuarios + gestión de roles
+│   │   ├── auth.py            # Endpoints: login, register, refresh, logout, me, verify-email
+│   │   └── user.py            # Endpoints: CRUD usuarios + gestión de roles
 │   └── dependencies.py        # Auth dependencies (get_current_user, require_role)
 ├── core/
-│   ├── config.py              # Configuración JWT (30 min access, 7 day refresh)
-│   └── security.py            # JWT creation/validation + password hashing (PBKDF2)
+│   ├── config.py              # Configuración JWT (30 min access, 7 day refresh, 24h email verification)
+│   ├── security.py             # JWT creation/validation + password hashing (PBKDF2)
+│   ├── logging.py              # Logging estructurado JSON con contextvars
+│   ├── logging_middleware.py   # RequestIDMiddleware para request tracing
+│   └── exception_handlers.py  # Manejo de errores en español
 ├── models/
-│   ├── auth.py                # Token, RefreshRequest, LogoutRequest, LoginRequest
+│   ├── auth.py                # Token, RefreshRequest, LogoutRequest, LoginRequest, VerifyEmailRequest
 │   └── user.py                # UserRead, UserCreate, RoleRead, etc.
 ├── services/
-│   ├── auth_service.py        # Login, register, refresh_access_token, logout
-│   └── user_service.py        # User CRUD + role management
+│   ├── auth_service.py         # Login, register, refresh_access_token, logout, verify_email
+│   ├── user_service.py         # User CRUD + role management
+│   └── token_blocklist.py      # Blocklist de tokens para invalidación server-side
 ├── db/
-│   └── schema.py              # SQLAlchemy models (User, Role)
+│   └── schema.py              # SQLAlchemy models (User, Role) + migrations legacy
 └── commands/
     └── bootstrap_first_admin.py  # CLI para promover primer ADMIN
 
-tests/                          # 49 tests cubriendo toda la funcionalidad
+tests/                          # 55 tests cubriendo toda la funcionalidad
 ```
 
 ### Patrón de arquitectura: Service Layer
@@ -100,11 +110,23 @@ HTTP Request → API Endpoint → Service Layer → DB (SQLAlchemy)
 ```
 Login → access_token (30 min) + refresh_token (7 days, rotation)
     ↓
- 使用access_token进行API调用
+ Usar access_token para llamadas API
     ↓
- Token过期 → POST /auth/refresh → 新tokens
+ Token expira → POST /auth/refresh → Nuevos tokens (rotación)
     ↓
- Logout → POST /auth/logout → refresh token invalidated
+ Logout → POST /auth/logout → Token agregado a blocklist (invalidado server-side)
+```
+
+### Email Verification Flow
+
+```
+Registro → Usuario creado con email_verified=False
+    ↓
+ POST /auth/resend-verification → Obtener token de verificación
+    ↓
+ POST /auth/verify-email → Token válido → email_verified=True
+    ↓
+ (Opcional) Usar endpoints que requieren email verificado
 ```
 
 ## Ejecución local
@@ -136,8 +158,10 @@ Valores relevantes:
 - nombre de la app: `LoginSystem`
 - base de datos SQLite
 - secreto JWT
-- algoritmo JWT
-- expiración del access token
+- algoritmo JWT (HS256, HS384, HS512)
+- expiración del access token (30 min default)
+- expiración del refresh token (7 días default)
+- expiración del token de verificación de email (24 horas default)
 
 ## Flujo básico de autenticación
 
@@ -195,6 +219,37 @@ curl -X POST "http://localhost:8000/api/v1/auth/logout" \
   }'
 ```
 
+### 6. Verificar email
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/verify-email" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "<verification_token>"
+  }'
+```
+
+### 7. Reenviar token de verificación
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/resend-verification" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "ada@example.com"
+  }'
+```
+
+## Rate Limiting
+
+Los siguientes endpoints tienen límite de requests:
+
+| Endpoint | Límite |
+|----------|--------|
+| `POST /api/v1/auth/login` | 5 requests/minuto/IP |
+| `POST /api/v1/auth/register` | 3 requests/minuto/IP |
+
+Al superar el límite, retorna `429 Too Many Requests`.
+
 ## Endpoints principales
 
 ### Autenticación
@@ -203,7 +258,13 @@ curl -X POST "http://localhost:8000/api/v1/auth/logout" \
 - `POST /api/v1/auth/login` — Login (retorna access + refresh token)
 - `GET /api/v1/auth/me` — Usuario autenticado
 - `POST /api/v1/auth/refresh` — Refrescar tokens (rotation)
-- `POST /api/v1/auth/logout` — Invalidar refresh token
+- `POST /api/v1/auth/logout` — Invalidar refresh token (server-side blocklist)
+- `POST /api/v1/auth/verify-email` — Verificar email con token JWT
+- `POST /api/v1/auth/resend-verification` — Reenviar token de verificación
+
+### Health Check
+
+- `GET /health` — Estado de la aplicación (para Docker/K8s)
 
 ### Usuarios
 
@@ -294,3 +355,7 @@ uv sync
 - el primer `ADMIN` se obtiene por bootstrap controlado, no por registro público
 - access_token expira en 30 min, refresh_token en 7 días
 - refresh tokens usan rotación: cada refresh invalida el token anterior
+- logout invalida el refresh token server-side via blocklist (en memoria)
+- logging estructurado en JSON con request_id para trazabilidad
+- rate limiting activo: 5 req/min en login, 3 req/min en register
+- token de verificación de email expira en 24 horas
