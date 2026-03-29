@@ -1,7 +1,6 @@
 from fastapi import FastAPI
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
+from app.api.middlewares import RateLimitMiddleware
 from app.api.v1 import auth, user
 from app.core.config import config
 from app.core.exception_handlers import register_exception_handlers
@@ -18,8 +17,10 @@ app = FastAPI(title=config.app_name)
 # Add request ID middleware FIRST (outermost)
 app.add_middleware(RequestIDMiddleware)
 
+# Add rate limiting middleware using SQLite (shared across workers)
+app.add_middleware(RateLimitMiddleware)
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 register_exception_handlers(app)
 
 

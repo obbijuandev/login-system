@@ -1,30 +1,69 @@
-"""Servicio de blocklist de tokens para invalidar refresh tokens al hacer logout."""
+"""Token blocklist service usando SQLite para invalidación server-side."""
 
-from typing import Set
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+
+from sqlalchemy import Column, DateTime, Integer, String, create_engine, text
+from sqlalchemy.orm import Session, sessionmaker, declarative_base
+
+Base = declarative_base()
 
 
-class TokenBlocklist:
-    """Blocklist de tokens en memoria usando un set de JTIs."""
+class BlockedToken(Base):
+    """Tabla para almacenar tokens bloqueados."""
 
-    def __init__(self) -> None:
-        self._blocklist: Set[str] = set()
+    __tablename__ = "blocked_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    jti = Column(String(64), unique=True, nullable=False, index=True)
+    blocked_at = Column(DateTime, nullable=False)
+
+
+class SQLiteTokenBlocklist:
+    """Blocklist de tokens persistido en SQLite."""
+
+    def __init__(self, db_path: str = "./tokenblocklist.db"):
+        db_url = f"sqlite:///{db_path}"
+        self.engine = create_engine(db_url, connect_args={"check_same_thread": False})
+        Base.metadata.create_all(self.engine)
+        self.SessionLocal = sessionmaker(bind=self.engine)
+
+    @contextmanager
+    def get_session(self):
+        session = self.SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
 
     def add(self, jti: str) -> None:
-        """Agrega un JTI de token a la blocklist."""
-        self._blocklist.add(jti)
+        """Bloquea un token por su JTI."""
+        with self.get_session() as session:
+            blocked = BlockedToken(jti=jti, blocked_at=datetime.now(timezone.utc))
+            session.merge(blocked)  # Usar merge para manejar duplicados
+            session.commit()
 
     def is_blocked(self, jti: str) -> bool:
-        """Verifica si un JTI de token está bloqueado."""
-        return jti in self._blocklist
+        """Verifica si un token está bloqueado."""
+        with self.get_session() as session:
+            return (
+                session.query(BlockedToken).filter(BlockedToken.jti == jti).first()
+                is not None
+            )
 
     def remove(self, jti: str) -> None:
-        """Elimina un JTI de token de la blocklist (para limpieza o allowlist)."""
-        self._blocklist.discard(jti)
+        """Desbloquea un token."""
+        with self.get_session() as session:
+            session.query(BlockedToken).filter(BlockedToken.jti == jti).delete()
+            session.commit()
 
     def clear(self) -> None:
-        """Limpia todos los tokens bloqueados. Usar con precaución."""
-        self._blocklist.clear()
+        """Limpia todos los tokens bloqueados."""
+        with self.get_session() as session:
+            session.execute(text("DELETE FROM blocked_tokens"))
+            session.commit()
 
 
-# Instancia global para usar en toda la aplicación
-token_blocklist = TokenBlocklist()
+# Instancia global
+token_blocklist = SQLiteTokenBlocklist()
