@@ -1,6 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import secrets
 
-from app.api.dependencies import get_auth_service, get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
+
+from app.api.dependencies import (
+    get_auth_service,
+    get_current_user,
+    get_google_oauth_service,
+)
 from app.db.schema import User
 from app.models.auth import (
     LoginRequest,
@@ -19,6 +26,7 @@ from app.services.auth_service import (
     InvalidCredentialsError,
     InvalidTokenError,
 )
+from app.services.google_oauth_service import GoogleOAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -125,3 +133,44 @@ def resend_verification(
     if result.get("verification_token") is not None:
         return {"verification_token": result["verification_token"]}
     return {"message": "Si el correo existe, se envió el correo de verificación"}
+
+
+@router.get("/google")
+def google_login(
+    google_oauth: GoogleOAuthService = Depends(get_google_oauth_service),
+):
+    """Inicia flujo OAuth con Google. Retorna 302 redirect."""
+    try:
+        state = secrets.token_urlsafe(32)
+        url = google_oauth.get_authorization_url(state)
+        return RedirectResponse(url, status_code=302)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth no está configurado",
+        )
+
+
+@router.get("/google/callback")
+def google_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    auth_service: AuthService = Depends(get_auth_service),
+    google_oauth: GoogleOAuthService = Depends(get_google_oauth_service),
+):
+    """Maneja callback de Google OAuth."""
+    try:
+        user = google_oauth.authenticate_or_create_user(code)
+    except EmailAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc.args[0]) if exc.args else "El email ya está registrado",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Error al autenticar con Google",
+        )
+
+    # Generar tokens JWT
+    return auth_service._create_tokens_for_user(user)

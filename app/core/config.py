@@ -17,6 +17,10 @@ class Config(BaseSettings):
     jwt_refresh_token_expire_days: int = 7
     jwt_email_verification_token_expire_hours: int = 24
 
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    google_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+
     @property
     def db_url(self) -> str:
         return f"sqlite:///./{self.db_name}"

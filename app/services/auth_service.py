@@ -96,6 +96,10 @@ class AuthService:
         if not user:
             raise InvalidCredentialsError("Correo electrónico o contraseña inválidos")
 
+        return self._create_tokens_for_user(user)
+
+    def _create_tokens_for_user(self, user: User) -> Token:
+        """Crea tokens JWT para un usuario ya autenticado (sin verificación de contraseña)."""
         return Token(
             access_token=create_access_token(subject=str(user.id)),
             refresh_token=create_refresh_token(subject=str(user.id)),

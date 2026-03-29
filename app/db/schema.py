@@ -11,9 +11,10 @@ Estrategia:
 """
 
 import logging
+from datetime import datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, ForeignKey, String, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, create_engine
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -69,6 +70,20 @@ class User(Base):
     )
 
     role: Mapped[Role | None] = relationship(back_populates="users")
+    linked_accounts: Mapped[list["LinkedAccount"]] = relationship(back_populates="user")
+
+
+class LinkedAccount(Base):
+    __tablename__ = "linked_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="linked_accounts")
 
 
 def init_db(db_engine=engine) -> None:
@@ -135,6 +150,29 @@ def migrate_legacy_schema(db_engine=engine) -> None:
         _ensure_email_indexes(connection)
         _ensure_role_index(connection)
         _backfill_legacy_users_role(connection)
+
+        # Migrate LinkedAccount table for Google OAuth
+        if LinkedAccount.__tablename__ not in tables:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE linked_accounts (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    provider VARCHAR(50) NOT NULL,
+                    provider_user_id VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX ix_linked_accounts_email ON linked_accounts(email)"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX ix_linked_accounts_provider_user_id ON linked_accounts(provider, provider_user_id)"
+            )
+            logger.info("Se creó la tabla linked_accounts para Google OAuth")
 
 
 def _get_table_columns(connection, table_name: str) -> set[str]:

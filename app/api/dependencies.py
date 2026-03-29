@@ -9,6 +9,7 @@ from app.core.security import ExpiredTokenError, InvalidTokenError, decode_acces
 from app.db.schema import RoleName, SessionLocal, User
 from app.models.auth import TokenPayload
 from app.services.auth_service import AuthService
+from app.services.google_oauth_service import GoogleOAuthService
 from app.services.user_service import UserService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -29,6 +30,10 @@ def get_user_service(db: Session = Depends(get_db)) -> UserService:
 
 def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
     return AuthService(session=db)
+
+
+def get_google_oauth_service(db: Session = Depends(get_db)) -> GoogleOAuthService:
+    return GoogleOAuthService(session=db)
 
 
 def get_current_user(
