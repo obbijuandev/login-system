@@ -75,7 +75,8 @@ app/
 │   ├── v1/
 │   │   ├── auth.py            # Endpoints: login, register, refresh, logout, me, verify-email
 │   │   └── user.py            # Endpoints: CRUD usuarios + gestión de roles
-│   └── dependencies.py        # Auth dependencies (get_current_user, require_role)
+│   ├── dependencies.py        # Auth dependencies (get_current_user, require_role)
+│   └── middlewares.py         # RateLimitMiddleware para rate limiting multi-worker
 ├── core/
 │   ├── config.py              # Configuración JWT (30 min access, 7 day refresh, 24h email verification)
 │   ├── security.py             # JWT creation/validation + password hashing (PBKDF2)
@@ -88,7 +89,8 @@ app/
 ├── services/
 │   ├── auth_service.py         # Login, register, refresh_access_token, logout, verify_email
 │   ├── user_service.py         # User CRUD + role management
-│   └── token_blocklist.py      # Blocklist de tokens para invalidación server-side
+│   ├── token_blocklist.py      # Blocklist de tokens con SQLite (shared entre workers)
+│   └── rate_limit_store.py     # Rate limiting store con SQLite (shared entre workers)
 ├── db/
 │   └── schema.py              # SQLAlchemy models (User, Role) + migrations legacy
 └── commands/
@@ -355,7 +357,7 @@ uv sync
 - el primer `ADMIN` se obtiene por bootstrap controlado, no por registro público
 - access_token expira en 30 min, refresh_token en 7 días
 - refresh tokens usan rotación: cada refresh invalida el token anterior
-- logout invalida el refresh token server-side via blocklist (en memoria)
+- logout invalida el refresh token server-side via blocklist (SQLite compartido entre workers)
 - logging estructurado en JSON con request_id para trazabilidad
-- rate limiting activo: 5 req/min en login, 3 req/min en register
+- rate limiting activo: 5 req/min en login, 3 req/min en register (SQLite compartido entre workers)
 - token de verificación de email expira en 24 horas
