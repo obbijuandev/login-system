@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -15,7 +17,10 @@ from app.core.security import InvalidTokenError as SecurityInvalidTokenError
 from app.core.security import ExpiredTokenError as SecurityExpiredTokenError
 from app.db.schema import DEFAULT_ROLE_NAME, Role, User
 from app.models.auth import Token
+from app.services.email_service import EmailServiceProtocol
 from app.services.token_blocklist import token_blocklist
+
+logger = logging.getLogger(__name__)
 
 
 class EmailAlreadyExistsError(ValueError):
@@ -167,27 +172,40 @@ class AuthService:
         self._db.commit()
         return True
 
-    def resend_verification(self, email: str) -> dict:
+    def resend_verification(
+        self, email: str, email_service: EmailServiceProtocol | None = None
+    ) -> dict:
         """Crea y retorna nuevo token de verificación para el email.
 
-        Nota: El envío de email está FUERA de scope - el token se crea y retorna
-        para integración con servicio externo de email.
+        El token se envía vía email si email_service está configurado,
+        o se loguea en modo desarrollo. Nunca se retorna en la respuesta HTTP.
         """
         normalized_email = self._normalize_email(email)
         user = self.get_user_by_email(normalized_email)
 
         if user is None:
             # Seguridad: no revelar si el email existe
-            return {"verification_token": None}
+            return {"sent": True}
 
         if user.email_verified:
             # Ya verificado - igual retornar éxito para evitar enumeración
-            return {"verification_token": None}
+            return {"sent": True}
 
         # Crear nuevo token
         token = create_email_verification_token(subject=str(user.id))
 
-        return {"verification_token": token}
+        # Enviar email o loguear en desarrollo
+        if email_service is not None:
+            try:
+                email_service.send_verification_email(normalized_email, token)
+            except Exception as e:
+                # No fallar el endpoint si el email falla - solo loguear
+                logger.error(f"Failed to send verification email: {e}")
+        else:
+            # Modo desarrollo: loguear el token
+            logger.info(f"Verification token for {normalized_email}: {token}")
+
+        return {"sent": True}
 
     @staticmethod
     def _normalize_email(email: str) -> str:

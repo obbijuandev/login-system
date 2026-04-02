@@ -414,8 +414,12 @@ def test_verify_email_with_expired_token(client):
     assert "expirado" in response.json()["detail"].lower()
 
 
-def test_resend_verification(client):
-    """Test that resend_verification endpoint returns a token."""
+def test_resend_verification_returns_generic_message_no_token(client):
+    """Test that resend_verification endpoint returns generic message, NOT a token.
+
+    SECURITY: The verification token must NEVER be exposed in the HTTP response.
+    It should only be sent via email or logged server-side in dev mode.
+    """
     # Register a user first
     client.post(
         "/api/v1/auth/register",
@@ -434,8 +438,14 @@ def test_resend_verification(client):
 
     assert response.status_code == 200
     data = response.json()
-    assert "verification_token" in data
-    assert data["verification_token"] is not None
+
+    # Security: token MUST NOT be in response
+    assert "verification_token" not in data
+    assert "token" not in data
+
+    # Should return generic success message
+    assert "message" in data
+    assert "Si el correo existe" in data["message"]
 
 
 def test_resend_verification_for_nonexistent_email(client):
@@ -493,3 +503,100 @@ def test_resend_verification_for_already_verified_email(client):
         "verification_token" not in response.json()
         or response.json().get("verification_token") is None
     )
+
+
+def test_resend_verification_integration_no_token_in_response(client, caplog):
+    """Test 4.5: Integration test - POST /resend-verification returns 200 with generic message (no token).
+
+    This test verifies the secure behavior at the integration level using TestClient.
+    The token must be logged server-side but NEVER appear in the HTTP response.
+    """
+    import logging
+
+    caplog.set_level(logging.INFO)
+
+    # Register a user
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Integration Test",
+            "email": "integration@example.com",
+            "password": "secret-pass",
+        },
+    )
+
+    # Resend verification
+    response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "integration@example.com"},
+    )
+
+    # Integration test: HTTP response must be 200 with generic message
+    assert response.status_code == 200
+    response_data = response.json()
+
+    # Security: NO token in response body
+    assert "verification_token" not in response_data
+    assert "token" not in response_data
+    assert "email" not in response_data
+
+    # Should have generic message
+    assert "message" in response_data
+    assert "Si el correo existe" in response_data["message"]
+
+    # But token SHOULD be logged server-side (dev mode)
+    log_messages = [record.message for record in caplog.records]
+    verification_log_found = any(
+        "Verification token for integration@example.com" in msg for msg in log_messages
+    )
+    assert verification_log_found, "Token should be logged server-side in dev mode"
+
+
+def test_verify_email_flow_integration_with_valid_token(client):
+    """Test 4.6: Integration test - verify email flow still works with valid token.
+
+    This test ensures the backward compatibility: existing tokens remain valid
+    and the verify-email endpoint works correctly.
+    """
+    from app.core.security import create_email_verification_token
+    from app.db.schema import User
+    from tests.test_db import TestingSessionLocal
+
+    # Register user
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Verify Test",
+            "email": "verify@example.com",
+            "password": "secret-pass",
+        },
+    )
+
+    # Get user ID and create valid verification token
+    session = TestingSessionLocal()
+    try:
+        user = session.query(User).filter(User.email == "verify@example.com").first()
+        user_id = user.id
+        assert user.email_verified is None  # Not verified yet (None means unverified)
+    finally:
+        session.close()
+
+    # Create valid token
+    token = create_email_verification_token(subject=str(user_id))
+
+    # Verify email - should succeed
+    verify_response = client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": token},
+    )
+
+    assert verify_response.status_code == 200
+    assert verify_response.json() == {"message": "Email verificado exitosamente"}
+
+    # Verify user is now marked as verified in DB
+    session = TestingSessionLocal()
+    try:
+        user = session.query(User).filter(User.email == "verify@example.com").first()
+        assert user.email_verified is True
+    finally:
+        session.close()
