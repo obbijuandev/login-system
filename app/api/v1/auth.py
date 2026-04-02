@@ -1,7 +1,10 @@
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+
+from app.core.config import config
 
 from app.api.dependencies import (
     get_auth_service,
@@ -29,6 +32,9 @@ from app.services.auth_service import (
 from app.services.google_oauth_service import GoogleOAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# OAuth state serializer for CSRF protection
+oauth_state_serializer = URLSafeTimedSerializer(config.oauth_state_secret_value)
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -126,12 +132,22 @@ def resend_verification(
     payload: ResendVerificationRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Resend verification email for unverified users."""
-    result = auth_service.resend_verification(email=payload.email)
+    """
+    Resend verification email for unverified users.
+
+    The verification token is sent via email when an email service is configured.
+    In development mode without an email service, the token is logged server-side.
+    The token is NEVER exposed in the HTTP response.
+
+    Returns:
+        A generic success message regardless of whether the email exists,
+        to prevent email enumeration attacks.
+    """
+    # email_service would be injected here when configured
+    # For now, passes None to enable dev logging
+    auth_service.resend_verification(email=payload.email, email_service=None)
 
     # Always return success to prevent email enumeration
-    if result.get("verification_token") is not None:
-        return {"verification_token": result["verification_token"]}
     return {"message": "Si el correo existe, se envió el correo de verificación"}
 
 
@@ -141,9 +157,19 @@ def google_login(
 ):
     """Inicia flujo OAuth con Google. Retorna 302 redirect."""
     try:
-        state = secrets.token_urlsafe(32)
-        url = google_oauth.get_authorization_url(state)
-        return RedirectResponse(url, status_code=302)
+        raw_state = secrets.token_urlsafe(32)
+        signed_state = oauth_state_serializer.dumps(raw_state)
+        url = google_oauth.get_authorization_url(raw_state)
+        response = RedirectResponse(url, status_code=302)
+        response.set_cookie(
+            key="oauth_state",
+            value=signed_state,
+            httponly=True,
+            secure=not config.debug,
+            samesite="lax",
+            max_age=300,
+        )
+        return response
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -153,12 +179,40 @@ def google_login(
 
 @router.get("/google/callback")
 def google_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     auth_service: AuthService = Depends(get_auth_service),
     google_oauth: GoogleOAuthService = Depends(get_google_oauth_service),
 ):
     """Maneja callback de Google OAuth."""
+    # Validate OAuth state CSRF token
+    oauth_state_cookie = request.cookies.get("oauth_state")
+    if not oauth_state_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth state cookie missing",
+        )
+
+    try:
+        decoded_state = oauth_state_serializer.loads(oauth_state_cookie, max_age=300)
+    except SignatureExpired:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OAuth state expired",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid OAuth state signature",
+        )
+
+    if decoded_state != state:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OAuth state mismatch",
+        )
+
     try:
         user = google_oauth.authenticate_or_create_user(code)
     except EmailAlreadyExistsError as exc:
