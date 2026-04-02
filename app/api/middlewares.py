@@ -16,6 +16,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/v1/auth/login": (5, 60),  # 5 por minuto
         "/api/v1/auth/register": (3, 60),  # 3 por minuto
         "/api/v1/auth/resend-verification": (3, 60),  # 3 por minuto
+        "/api/v1/auth/refresh": (10, 60),  # 10 por minuto
     }
 
     async def dispatch(self, request: Request, call_next) -> Response:

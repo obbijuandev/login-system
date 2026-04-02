@@ -130,7 +130,7 @@ class TestGoogleOAuthCSRF:
         )
 
         assert response.status_code == 400
-        assert response.json()["detail"] == "OAuth state cookie missing"
+        assert response.json()["detail"] == "Cookie de estado OAuth faltante"
 
     def test_callback_tampered_cookie_returns_401(self, client):
         """Test that callback with tampered cookie returns 401 (3.6)."""
@@ -141,7 +141,7 @@ class TestGoogleOAuthCSRF:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "Invalid OAuth state signature"
+        assert response.json()["detail"] == "Firma de estado OAuth inválida"
 
     def test_callback_expired_cookie_returns_401(self, client):
         """Test that callback with expired cookie returns 401 (3.7).
@@ -166,7 +166,7 @@ class TestGoogleOAuthCSRF:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "OAuth state expired"
+        assert response.json()["detail"] == "El estado OAuth ha expirado"
 
     def test_callback_mismatched_state_returns_401(self, client):
         """Test that callback with mismatched state returns 401 (3.8)."""
@@ -195,7 +195,7 @@ class TestGoogleOAuthCSRF:
         )
 
         assert response.status_code == 401
-        assert response.json()["detail"] == "OAuth state mismatch"
+        assert response.json()["detail"] == "El estado OAuth no coincide"
 
     def test_callback_valid_state_succeeds_signature_validation(self, client):
         """Test that a valid state passes signature validation (but may fail at Google auth).

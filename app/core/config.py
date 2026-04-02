@@ -20,6 +20,8 @@ class Config(BaseSettings):
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")
     google_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+    google_jwks_uri: str = "https://www.googleapis.com/oauth2/v3/certs"
+    google_jwks_cache_ttl: int = 3600  # 1 hour in seconds
 
     @property
     def db_url(self) -> str:
