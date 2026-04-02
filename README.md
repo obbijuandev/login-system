@@ -25,10 +25,10 @@ El proyecto incluye:
 - roles persistidos en base de datos
 - autorización por rol sobre endpoints de usuarios
 - bootstrap controlado del primer `ADMIN`
-- verificación de email por token JWT
+- verificación de email por token JWT (token NUNCA expuesto en response)
 - logging estructurado JSON con request IDs
-- rate limiting en endpoints de auth
-- autenticación OAuth con Google
+- rate limiting en endpoints de auth (incluido refresh)
+- autenticación OAuth con Google (con validación cryptográfica de id_token)
 
 ## Roles disponibles
 
@@ -89,7 +89,8 @@ app/
 ├── services/
 │   ├── auth_service.py         # Login, register, refresh_access_token, logout, verify_email
 │   ├── user_service.py         # User CRUD + role management
-│   ├── google_oauth_service.py # Google OAuth integration
+│   ├── google_oauth_service.py # Google OAuth integration + id_token validation
+│   ├── email_service.py        # Email service interface + LoggingEmailService for dev
 │   ├── token_blocklist.py      # Blocklist de tokens con SQLite (shared entre workers)
 │   └── rate_limit_store.py     # Rate limiting store con SQLite (shared entre workers)
 ├── db/
@@ -97,7 +98,7 @@ app/
 └── commands/
     └── bootstrap_first_admin.py  # CLI para promover primer ADMIN
 
-tests/                          # 55 tests cubriendo toda la funcionalidad
+tests/                          # 92+ tests cubriendo toda la funcionalidad
 ```
 
 ### Patrón de arquitectura: Service Layer
@@ -272,6 +273,8 @@ Los siguientes endpoints tienen límite de requests:
 |----------|--------|
 | `POST /api/v1/auth/login` | 5 requests/minuto/IP |
 | `POST /api/v1/auth/register` | 3 requests/minuto/IP |
+| `POST /api/v1/auth/refresh` | 10 requests/minuto/IP |
+| `POST /api/v1/auth/resend-verification` | 3 requests/minuto/IP |
 
 Al superar el límite, retorna `429 Too Many Requests`.
 
@@ -380,5 +383,7 @@ uv sync
 - refresh tokens usan rotación: cada refresh invalida el token anterior
 - logout invalida el refresh token server-side via blocklist (SQLite compartido entre workers)
 - logging estructurado en JSON con request_id para trazabilidad
-- rate limiting activo: 5 req/min en login, 3 req/min en register (SQLite compartido entre workers)
-- token de verificación de email expira en 24 horas
+- rate limiting activo: 5 req/min en login, 3 req/min en register, 10 req/min en refresh (SQLite compartido entre workers)
+- token de verificación de email expira en 24 horas y NUNCA se expone en la respuesta HTTP (solo se loguea en desarrollo o se envía por email en producción)
+- Google OAuth valida cryptográficamente el id_token usando JWKS de Google antes de confiar en los datos del usuario
+- El email de verificación NUNCA retorna en el response body — se loguea en desarrollo o se envía por email en producción
