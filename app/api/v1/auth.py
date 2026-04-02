@@ -33,7 +33,7 @@ from app.services.google_oauth_service import GoogleOAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# OAuth state serializer for CSRF protection
+# Serializador de estado OAuth para protección CSRF
 oauth_state_serializer = URLSafeTimedSerializer(config.oauth_state_secret_value)
 
 
@@ -80,7 +80,7 @@ def refresh(
     payload: RefreshRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Exchange refresh token for new access + refresh token (rotation)."""
+    """Intercambia token de refresh por nuevo access + refresh token (rotación)."""
     try:
         return auth_service.refresh_access_token(refresh_token=payload.refresh_token)
     except ExpiredTokenError as exc:
@@ -102,7 +102,7 @@ def logout(
     payload: LogoutRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Client-side logout - discards refresh token."""
+    """Logout del lado del cliente - descarta el refresh token."""
     return auth_service.logout(refresh_token=payload.refresh_token)
 
 
@@ -111,7 +111,7 @@ def verify_email(
     payload: VerifyEmailRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Verify user's email with token from verification email."""
+    """Verifica el email del usuario con el token del correo de verificación."""
     try:
         auth_service.verify_email(token=payload.token)
         return {"message": "Email verificado exitosamente"}
@@ -133,18 +133,18 @@ def resend_verification(
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
-    Resend verification email for unverified users.
+    Reenvía correo de verificación para usuarios no verificados.
 
-    The verification token is sent via email when an email service is configured.
-    In development mode without an email service, the token is logged server-side.
-    The token is NEVER exposed in the HTTP response.
+    El token de verificación se envía por email cuando un servicio de email está configurado.
+    En modo desarrollo sin servicio de email, el token se loguea en el servidor.
+    El token NUNCA se expone en la respuesta HTTP.
 
-    Returns:
-        A generic success message regardless of whether the email exists,
-        to prevent email enumeration attacks.
+    Retorna:
+        Un mensaje de éxito genérico independientemente de si el email existe,
+        para prevenir ataques de enumeración de emails.
     """
-    # email_service would be injected here when configured
-    # For now, passes None to enable dev logging
+    # email_service se inyectaría aquí cuando esté configurado
+    # Por ahora, pasa None para habilitar logging en desarrollo
     auth_service.resend_verification(email=payload.email, email_service=None)
 
     # Always return success to prevent email enumeration
@@ -186,12 +186,12 @@ def google_callback(
     google_oauth: GoogleOAuthService = Depends(get_google_oauth_service),
 ):
     """Maneja callback de Google OAuth."""
-    # Validate OAuth state CSRF token
+    # Validar token CSRF de estado OAuth
     oauth_state_cookie = request.cookies.get("oauth_state")
     if not oauth_state_cookie:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state cookie missing",
+            detail="Cookie de estado OAuth faltante",
         )
 
     try:
@@ -199,18 +199,18 @@ def google_callback(
     except SignatureExpired:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="OAuth state expired",
+            detail="El estado OAuth ha expirado",
         )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid OAuth state signature",
+            detail="Firma de estado OAuth inválida",
         )
 
     if decoded_state != state:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="OAuth state mismatch",
+            detail="El estado OAuth no coincide",
         )
 
     try:
