@@ -29,5 +29,10 @@ class Config(BaseSettings):
     def jwt_secret(self) -> str:
         return self.jwt_secret_key.get_secret_value()
 
+    @property
+    def oauth_state_secret_value(self) -> str:
+        """Derive OAuth state signing secret from JWT secret."""
+        return self.jwt_secret
+
 
 config = Config()
